@@ -49,6 +49,11 @@ def get_tenant_column(model_class_or_instance):
     raise ValueError(f"{model_class_or_instance} has no TenantPrimaryKey")
 
 
+def get_tenant_field(model_class_or_instance):
+    tenant_column = get_tenant_column(model_class_or_instance)
+    return model_class_or_instance._meta.get_field(tenant_column)
+
+
 def get_current_tenant_value():
     current_tenant = get_current_tenant()
     if not current_tenant:

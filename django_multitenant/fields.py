@@ -1,7 +1,13 @@
 import logging
 from django.db import models
 
-from .utils import get_current_tenant, get_tenant_column, get_tenant_filters
+from .utils import (
+    get_current_tenant,
+    get_current_tenant_value,
+    get_tenant_column,
+    get_tenant_field,
+    get_tenant_filters,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +41,15 @@ class TenantForeignKey(models.ForeignKey):
     TenantModel lookup.
     """
 
+    # Get override
+    def get_joining_columns(self, reverse_join=False):
+        default_columns = super().get_joining_columns(reverse_join=reverse_join)
+
+        # Add join on tenant IDs
+        lhs_tenant_id = get_tenant_column(self.model)
+        rhs_tenant_id = get_tenant_column(self.related_model)
+        return default_columns + ((lhs_tenant_id, rhs_tenant_id),)
+
     # Override
     def get_extra_descriptor_filter(self, instance):
         """
@@ -49,21 +64,14 @@ class TenantForeignKey(models.ForeignKey):
         A parallel method is get_extra_restriction() which is used in
         JOIN and subquery conditions.
         """
-
         current_tenant = get_current_tenant()
-        if current_tenant:
-            return get_tenant_filters(instance)
-        else:
-            logger.warn(
-                "TenantForeignKey field %s.%s"
-                "accessed without a current tenant set. "
-                "This may cause issues in a partitioned environment. "
-                "Recommend calling set_current_tenant() before accessing "
-                "this field.",
+        if not current_tenant:
+            raise ValueError(
+                "TenantForeignKey field %s.%s accessed without a current tenant set.",
                 self.model.__name__,
                 self.name,
             )
-            return super(TenantForeignKey, self).get_extra_descriptor_filter(instance)
+        return get_tenant_filters(instance)
 
     # Override
     def get_extra_restriction(self, where_class, alias, related_alias):
@@ -79,22 +87,16 @@ class TenantForeignKey(models.ForeignKey):
         instance.fieldname related object fetching.
         """
 
+        current_tenant_value = get_current_tenant_value()
+        if not current_tenant_value:
+            return None
+
         # Fetch tenant column names for both sides of the relation
-        lhs_model = self.model
-        rhs_model = self.related_model
-        lhs_tenant_id = get_tenant_column(lhs_model)
-        rhs_tenant_id = get_tenant_column(rhs_model)
-
-        # Fetch tenant fields for both sides of the relation
-        lhs_tenant_field = lhs_model._meta.get_field(lhs_tenant_id)
-        rhs_tenant_field = rhs_model._meta.get_field(rhs_tenant_id)
-
-        # Get references to both tenant columns
+        lhs_tenant_field = get_tenant_field(self.model)
         lookup_lhs = lhs_tenant_field.get_col(related_alias)
-        lookup_rhs = rhs_tenant_field.get_col(alias)
 
-        # Create "AND lhs.tenant_id = rhs.tenant_id" as a new condition
-        lookup = lhs_tenant_field.get_lookup("exact")(lookup_lhs, lookup_rhs)
+        # Create "AND lhs.tenant_id = current_tenant_value as a new condition
+        lookup = lhs_tenant_field.get_lookup("exact")(lookup_lhs, current_tenant_value)
         condition = where_class()
         condition.add(lookup, "AND")
         return condition
