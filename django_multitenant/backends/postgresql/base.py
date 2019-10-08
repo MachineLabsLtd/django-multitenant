@@ -3,6 +3,7 @@ import sys
 from django.conf import settings
 from django.db import connections
 from django.db.backends.postgresql.base import (
+    DatabaseFeatures as PostgresqlDatabaseFeatures,
     DatabaseWrapper as PostgresqlDatabaseWrapper,
     DatabaseSchemaEditor as PostgresqlDatabaseSchemaEditor,
     DatabaseCreation as PostgresqlDatabaseCreation,
@@ -300,7 +301,14 @@ class DatabaseCreation(PostgresqlDatabaseCreation):
             )
 
 
+class DatabaseFeatures(PostgresqlDatabaseFeatures):
+    # The default Django behaviour is to collapse the fields to just the 'id' field
+    # This doesn't work because we're using a composite primary key.
+    allows_group_by_selected_pks = False
+
+
 class DatabaseWrapper(PostgresqlDatabaseWrapper):
     # Override
     SchemaEditorClass = DatabaseSchemaEditor
     creation_class = DatabaseCreation
+    features_class = DatabaseFeatures
